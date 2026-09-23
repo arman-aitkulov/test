@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Учёт валюты USD/KZT</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #fff; --text: #1d2330; --muted: #6b7385;
+    --border: #e1e5ec; --accent: #2563eb; --green: #15803d; --red: #b91c1c;
+    --green-bg: #e8f6ed; --red-bg: #fdecec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --text: #e6e9ef; --muted: #9aa3b5;
+      --border: #2c3340; --accent: #5b8cff; --green: #4ade80; --red: #f87171;
+      --green-bg: #173323; --red-bg: #3a1d1d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 16px;
+  }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .stat .label { color: var(--muted); font-size: 13px; }
+  .stat .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .highlight { border: 2px solid var(--accent); }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  form { display: grid; gap: 10px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input {
+    font: inherit; padding: 9px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+  button {
+    font: inherit; padding: 10px 14px; border: 0; border-radius: 8px;
+    background: var(--accent); color: #fff; cursor: pointer; font-weight: 600;
+  }
+  button:disabled { opacity: .6; cursor: default; }
+  .hint { font-size: 13px; color: var(--muted); min-height: 1.2em; }
+  .advice { padding: 12px 14px; border-radius: 10px; margin-top: 12px; }
+  .advice.good { background: var(--green-bg); }
+  .advice.bad { background: var(--red-bg); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  .tag { font-size: 12px; padding: 2px 8px; border-radius: 99px; }
+  .tag.buy { background: var(--red-bg); } .tag.sell { background: var(--green-bg); }
+  .del { background: transparent; color: var(--muted); padding: 2px 8px; font-weight: 400; }
+  .del:hover { color: var(--red); }
+  #status { position: fixed; left: 16px; right: 16px; bottom: 16px; max-width: 600px; margin: 0 auto;
+    padding: 10px 14px; border-radius: 10px; background: var(--red-bg); color: var(--text); display: none; }
+  .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+  .row label { flex: 1; min-width: 140px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Учёт валюты USD ⇄ KZT</h1>
+  <p class="sub">Записывайте покупки и продажи долларов. Приложение считает среднюю цену покупки, прибыль и курс, при котором продажа выгодна.</p>
+
+  <div class="stats">
+    <div class="stat"><div class="label">Остаток на руках</div><div class="value" id="s-left">—</div></div>
+    <div class="stat"><div class="label">Средний курс покупки</div><div class="value" id="s-avg">—</div></div>
+    <div class="stat highlight"><div class="label">Продавать с прибылью при курсе выше</div><div class="value" id="s-be">—</div></div>
+    <div class="stat"><div class="label">Прибыль с продаж</div><div class="value" id="s-profit">—</div></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>Когда продавать?</h2>
+    <div class="row">
+      <label>Текущий курс, ₸ за $1
+        <input type="number" id="cur-rate" step="0.01" min="0" placeholder="например, 510">
+      </label>
+      <label>Желаемая прибыль, %
+        <input type="number" id="target-pct" step="0.1" value="2">
+      </label>
+    </div>
+    <div id="advice"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Покупка долларов</h2>
+      <form id="buy-form">
+        <label>Сколько долларов купил ($)
+          <input type="number" name="usd" step="0.01" min="0.01" required>
+        </label>
+        <label>Сколько заплатил в тенге (₸)
+          <input type="number" name="kzt" step="0.01" min="0.01" required>
+        </label>
+        <label>Дата
+          <input type="date" name="date" required>
+        </label>
+        <div class="hint" id="buy-hint"></div>
+        <button type="submit">Добавить покупку</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Продажа (снятие) долларов</h2>
+      <form id="sell-form">
+        <label>Сколько долларов снял/продал ($)
+          <input type="number" name="usd" step="0.01" min="0.01" required>
+        </label>
+        <label>По какому курсу (₸ за $1)
+          <input type="number" name="rate" step="0.01" min="0.01" required>
+        </label>
+        <label>Дата
+          <input type="date" name="date" required>
+        </label>
+        <div class="hint" id="sell-hint"></div>
+        <button type="submit">Добавить продажу</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>История операций</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Дата</th><th>Тип</th><th>USD</th><th>Курс</th><th>KZT</th><th>Прибыль</th><th></th></tr></thead>
+        <tbody id="history"><tr><td colspan="7" class="hint">Загрузка…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div id="status"></div>
+
+<script>
+  const SUPABASE_URL = 'https://fstzxlxanygtutmzwjgo.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_x6rudcJio7MMLY5nJuxFLQ_9kb3i7x_';
+  const TABLE = 'app_data';
+  const BUY = 'fx_buy';
+  const SELL = 'fx_sell';
+
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  let rows = [];
+
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n, d = 2) => Number(n).toLocaleString('ru-RU', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const usd = (n) => '$' + fmt(n);
+  const kzt = (n) => fmt(n) + ' ₸';
+  const signed = (n) => `<span class="${n >= 0 ? 'pos' : 'neg'}">${n >= 0 ? '+' : ''}${kzt(n)}</span>`;
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  function showError(msg) {
+    const el = $('status');
+    el.textContent = msg;
+    el.style.display = 'block';
+    clearTimeout(showError.t);
+    showError.t = setTimeout(() => (el.style.display = 'none'), 6000);
+  }
+
+  async function load() {
+    const { data, error } = await db
+      .from(TABLE)
+      .select('id, item_type, data, created_at')
+      .in('item_type', [BUY, SELL]);
+    if (error) {
+      showError('Не удалось загрузить данные: ' + error.message);
+      $('history').innerHTML = '<tr><td colspan="7" class="hint">Нет соединения с базой</td></tr>';
+      return;
+    }
+    rows = data || [];
+    render();
+  }
+
+  // Метод средней цены: каждая продажа списывает доллары по текущей средней цене покупки.
+  function compute() {
+    const ops = [...rows].sort((a, b) =>
+      (a.data.date || '').localeCompare(b.data.date || '') ||
+      a.created_at.localeCompare(b.created_at));
+    let holdUsd = 0, holdCost = 0, realized = 0, boughtUsd = 0, spentKzt = 0, soldUsd = 0, gotKzt = 0;
+    const profitById = {};
+    for (const op of ops) {
+      const d = op.data;
+      if (op.item_type === BUY) {
+        holdUsd += +d.usd; holdCost += +d.kzt;
+        boughtUsd += +d.usd; spentKzt += +d.kzt;
+      } else {
+        const avg = holdUsd > 0 ? holdCost / holdUsd : 0;
+        const qty = Math.min(+d.usd, holdUsd);
+        const cost = qty * avg;
+        const revenue = +d.usd * +d.rate;
+        const profit = revenue - cost;
+        profitById[op.id] = profit;
+        realized += profit;
+        holdUsd -= qty; holdCost -= cost;
+        soldUsd += +d.usd; gotKzt += revenue;
+        if (holdUsd < 1e-9) { holdUsd = 0; holdCost = 0; }
+      }
+    }
+    const avg = holdUsd > 0 ? holdCost / holdUsd : null;
+    // Курс, при котором продажа всего остатка выводит всю историю в ноль.
+    const overallBe = holdUsd > 0 ? (spentKzt - gotKzt) / holdUsd : null;
+    return { ops, holdUsd, holdCost, avg, overallBe, realized, profitById, boughtUsd, spentKzt, soldUsd, gotKzt };
+  }
+
+  function render() {
+    const s = compute();
+    $('s-left').textContent = usd(s.holdUsd);
+    $('s-avg').textContent = s.avg ? kzt(s.avg) : '—';
+    $('s-be').textContent = s.avg ? kzt(s.avg) : '—';
+    $('s-profit').innerHTML = signed(s.realized);
+
+    const tbody = $('history');
+    if (!s.ops.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="hint">Пока нет операций. Добавьте первую покупку.</td></tr>';
+    } else {
+      tbody.innerHTML = s.ops.slice().reverse().map((op) => {
+        const d = op.data;
+        const isBuy = op.item_type === BUY;
+        const rate = isBuy ? d.kzt / d.usd : +d.rate;
+        const total = isBuy ? +d.kzt : d.usd * d.rate;
+        const profit = isBuy ? '' : signed(s.profitById[op.id] || 0);
+        return `<tr>
+          <td>${d.date || op.created_at.slice(0, 10)}</td>
+          <td><span class="tag ${isBuy ? 'buy' : 'sell'}">${isBuy ? 'Покупка' : 'Продажа'}</span></td>
+          <td>${usd(d.usd)}</td><td>${fmt(rate)}</td><td>${kzt(total)}</td>
+          <td>${profit}</td>
+          <td><button class="del" title="Удалить" data-id="${op.id}">✕</button></td>
+        </tr>`;
+      }).join('');
+    }
+    renderAdvice(s);
+  }
+
+  function renderAdvice(s) {
+    const box = $('advice');
+    if (!s.holdUsd) {
+      box.innerHTML = '<p class="hint">Долларов на руках нет. Добавьте покупку, чтобы увидеть рекомендацию.</p>';
+      return;
+    }
+    const pct = parseFloat($('target-pct').value) || 0;
+    const targetRate = s.avg * (1 + pct / 100);
+    let html = `<p>Вы купили оставшиеся <b>${usd(s.holdUsd)}</b> в среднем по <b>${fmt(s.avg)} ₸</b>.
+      Продажа по курсу <b>выше ${fmt(s.avg)} ₸</b> даёт прибыль.
+      Чтобы заработать ${fmt(pct, 1)}%, продавайте по <b>${fmt(targetRate)} ₸</b> или дороже.</p>`;
+    if (Math.abs(s.overallBe - s.avg) > 0.005) {
+      html += `<p class="hint">С учётом прошлых продаж вся история выйдет в ноль, если продать остаток по ${fmt(Math.max(s.overallBe, 0))} ₸.</p>`;
+    }
+    const cur = parseFloat($('cur-rate').value);
+    if (cur > 0) {
+      const profit = s.holdUsd * cur - s.holdCost;
+      const good = cur > s.avg;
+      html += `<div class="advice ${good ? 'good' : 'bad'}">
+        ${good ? '✅ Сейчас продавать выгодно.' : '⛔ Сейчас продажа принесёт убыток.'}
+        Если продать весь остаток по ${fmt(cur)} ₸, результат: ${signed(profit)}
+        (${fmt(profit / s.holdCost * 100, 2)}%).</div>`;
+    }
+    box.innerHTML = html;
+  }
+
+  async function insert(item_type, data, form) {
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    const { error } = await db.from(TABLE).insert({ item_type, data });
+    btn.disabled = false;
+    if (error) return showError('Не удалось сохранить: ' + error.message);
+    form.reset();
+    form.date.value = today();
+    updateHints();
+    await load();
+  }
+
+  $('buy-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    insert(BUY, { usd: +f.usd.value, kzt: +f.kzt.value, date: f.date.value }, f);
+  });
+
+  $('sell-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const amount = +f.usd.value;
+    const { holdUsd } = compute();
+    if (amount > holdUsd + 1e-9 && !confirm(`На руках только ${usd(holdUsd)}. Всё равно записать продажу ${usd(amount)}?`)) return;
+    insert(SELL, { usd: amount, rate: +f.rate.value, date: f.date.value }, f);
+  });
+
+  $('history').addEventListener('click', async (e) => {
+    const id = e.target.dataset && e.target.dataset.id;
+    if (!id || !confirm('Удалить эту операцию?')) return;
+    const { error } = await db.from(TABLE).delete().eq('id', id);
+    if (error) return showError('Не удалось удалить: ' + error.message);
+    await load();
+  });
+
+  function updateHints() {
+    const b = $('buy-form'), sf = $('sell-form');
+    const bu = +b.usd.value, bk = +b.kzt.value;
+    $('buy-hint').textContent = bu > 0 && bk > 0 ? `Курс покупки: ${fmt(bk / bu)} ₸ за $1` : '';
+    const su = +sf.usd.value, sr = +sf.rate.value;
+    if (su > 0 && sr > 0) {
+      const { avg } = compute();
+      let t = `Получите ${kzt(su * sr)}`;
+      if (avg) t += `, прибыль ≈ ${fmt(su * (sr - avg))} ₸`;
+      $('sell-hint').textContent = t;
+    } else $('sell-hint').textContent = '';
+  }
+
+  ['buy-form', 'sell-form'].forEach((id) => $(id).addEventListener('input', updateHints));
+  ['cur-rate', 'target-pct'].forEach((id) => $(id).addEventListener('input', () => renderAdvice(compute())));
+  document.querySelectorAll('input[type=date]').forEach((i) => (i.value = today()));
+
+  load();
+</script>
+</body>
+</html>
