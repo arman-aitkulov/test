@@ -36,7 +36,7 @@ streamlit run app.py
 
 Статическая версия — `index.html` + `data.json`. Workflow `.github/workflows/pages.yml`
 каждый день в 09:00 (Астана) запускает `export.py`, коммитит обновлённый `data.json`
-(только если данные изменились) и публикует сайт. Запустить вручную: Actions →
-«Update NBK data & deploy Pages» → Run workflow.
+(только если данные изменились); Pages (Deploy from branch `main`) после этого
+пересобирает сайт сам. Запустить вручную: Actions → «Update NBK data» → Run workflow.
 
 Локально: `python export.py && python -m http.server` → http://localhost:8000
