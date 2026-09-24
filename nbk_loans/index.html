@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Кредиты по регионам</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #fff; --text: #1d2330; --muted: #6b7385;
+    --border: #e1e5ec; --accent: #2563eb; --bar: #2a78d6; --bar-hover: #1f5fae;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --text: #e6e9ef; --muted: #9aa3b5;
+      --border: #2c3340; --accent: #5b8cff; --bar: #3987e5; --bar-hover: #6aa6f0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 14px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+  a { color: var(--accent); }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 16px;
+  }
+  .filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); flex: 1 1 220px; min-width: 0; }
+  select {
+    font: inherit; padding: 9px 10px; border-radius: 8px; width: 100%; min-width: 0;
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+  }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .stat .label { color: var(--muted); font-size: 13px; }
+  .stat .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .note { color: var(--muted); font-size: 12px; }
+  .chart { display: grid; grid-template-columns: minmax(90px, max-content) 1fr; gap: 4px 10px; align-items: center; }
+  .chart .name { font-size: 13px; color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chart .track { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 0; cursor: default; }
+  .chart .bar { height: 20px; background: var(--bar); border-radius: 0 4px 4px 0; min-width: 2px; flex: none; }
+  .chart .track:hover .bar { background: var(--bar-hover); }
+  .chart .val { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .unit { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  #tip {
+    position: fixed; pointer-events: none; background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.12); display: none; z-index: 10;
+  }
+  details summary { cursor: pointer; font-weight: 600; }
+  .table-wrap { overflow-x: auto; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td.num, th.num { text-align: right; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  .error { color: #b91c1c; }
+  @media (max-width: 520px) { .chart .name { font-size: 12px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Кредиты банковского сектора по регионам</h1>
+  <p class="sub">
+    Источник: <a href="https://nationalbank.kz/ru/news/banking-sector-loans-to-economy-analytics/rubrics/2602" target="_blank" rel="noopener">Национальный Банк РК</a>
+    · данные обновлены <span id="updated">…</span>
+  </p>
+
+  <div class="filters">
+    <label>Показатель <select id="sheet"></select></label>
+    <label>Месяц <select id="period"></select></label>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="label">Всего по республике</div><div class="value" id="total">—</div><div class="note">млрд ₸</div></div>
+    <div class="stat"><div class="label">Лидер</div><div class="value" id="leader">—</div><div class="note" id="leaderShare"></div></div>
+    <div class="stat"><div class="label">Регионов</div><div class="value" id="count">—</div></div>
+  </div>
+
+  <div class="card">
+    <h2 id="title"></h2>
+    <div class="chart" id="chart" role="img"></div>
+    <div class="unit">млрд ₸</div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Таблица</summary>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Регион</th><th class="num">млн ₸</th><th class="num">Доля, %</th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</div>
+<div id="tip"></div>
+
+<script>
+const MONTHS_NOM = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
+const MONTHS_GEN = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+const fmt = (v, d = 1) => v.toLocaleString("ru-RU", { minimumFractionDigits: d, maximumFractionDigits: d });
+const $ = id => document.getElementById(id);
+
+let DB;
+
+function periodLabel(sheet, key) {
+  const [y, m] = key.split("-").map(Number);
+  return sheet === "Выдано"
+    ? `${MONTHS_NOM[m - 1][0].toUpperCase()}${MONTHS_NOM[m - 1].slice(1)} ${y}`
+    : `на 1 ${MONTHS_GEN[m - 1]} ${y}`;
+}
+
+function fillPeriods(keep) {
+  const sheet = $("sheet").value;
+  const keys = Object.keys(DB.data[sheet]).sort().reverse();
+  $("period").innerHTML = keys.map(k => `<option value="${k}">${periodLabel(sheet, k)}</option>`).join("");
+  if (keep && keys.includes(keep)) $("period").value = keep;
+}
+
+function render() {
+  const sheet = $("sheet").value, period = $("period").value;
+  const rows = Object.entries(DB.data[sheet][period]).sort((a, b) => b[1] - a[1]);
+  const total = rows.reduce((s, r) => s + r[1], 0);
+  const max = rows[0][1];
+
+  $("title").textContent = `${DB.sheets[sheet]} — ${periodLabel(sheet, period)}`;
+  $("total").textContent = fmt(total / 1000);
+  $("leader").textContent = rows[0][0];
+  $("leaderShare").textContent = `${fmt(rows[0][1] / total * 100)}% от итога`;
+  $("count").textContent = rows.length;
+
+  // ширина столбца в % от трека; 82% оставляет место подписи самого длинного
+  $("chart").innerHTML = rows.map(([region, v]) => `
+    <div class="name" title="${region}">${region}</div>
+    <div class="track" data-region="${region}" data-v="${v}">
+      <div class="bar" style="width:${(v / max * 82).toFixed(2)}%"></div>
+      <span class="val">${fmt(v / 1000)}</span>
+    </div>`).join("");
+  $("chart").setAttribute("aria-label", $("title").textContent);
+
+  $("tbody").innerHTML = rows.map(([region, v]) =>
+    `<tr><td>${region}</td><td class="num">${fmt(v)}</td><td class="num">${fmt(v / total * 100, 2)}</td></tr>`
+  ).join("");
+  $("chart").dataset.total = total;
+}
+
+const tip = $("tip");
+$("chart").addEventListener("mousemove", e => {
+  const t = e.target.closest(".track");
+  if (!t) { tip.style.display = "none"; return; }
+  const v = +t.dataset.v, total = +$("chart").dataset.total;
+  tip.innerHTML = `<b>${t.dataset.region}</b><br>${fmt(v / 1000)} млрд ₸<br>${fmt(v / total * 100)}% от итога`;
+  tip.style.display = "block";
+  const x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+  tip.style.left = x + "px";
+  tip.style.top = (e.clientY + 14) + "px";
+});
+$("chart").addEventListener("mouseleave", () => tip.style.display = "none");
+
+$("sheet").addEventListener("change", () => { fillPeriods($("period").value); render(); });
+$("period").addEventListener("change", render);
+
+fetch("data.json", { cache: "no-cache" })
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(db => {
+    DB = db;
+    $("updated").textContent = db.updated;
+    $("sheet").innerHTML = Object.entries(db.sheets)
+      .filter(([k]) => db.data[k])
+      .map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+    fillPeriods();
+    render();
+  })
+  .catch(err => {
+    $("chart").innerHTML = `<p class="error">Не удалось загрузить data.json (${err.message})</p>`;
+  });
+</script>
+</body>
+</html>
